@@ -45,7 +45,7 @@ shinyServer(function(input,output,session){
 ### Create Map  
 
    output$VegMap<-renderLeaflet({ 
-    #  req(input$MapSpecies)
+      req(input$MapSpecies)
       leaflet() %>%
       setView(lng=-77.8,lat=39.03,zoom=9) %>% 
       setMaxBounds(lng1=-79.5,lng2=-76.1, lat1=37.7, lat2=40.36)
@@ -63,27 +63,8 @@ shinyServer(function(input,output,session){
                   target='_blank'>Improve Park Tiles</a>")
   
   
-  #### add Monitoring plot data as circles - needs to be before layers or app hangs for some reason - new issue ####
-  observe({
-    validate(
-      need(input$MapValues, message = FALSE)
-    )
-    input$MapLayer #make sure Circles are always on top
-    leafletProxy("VegMap") %>% 
-      clearGroup("Circles") %>% 
-      addCircles(data=MapData(), radius=15*as.numeric(input$PlotSize), group="Circles",
-                 lng=MapData()$Longitude, lat=MapData()$Latitude,
-                 layerId=MapData()$Plot_Name,  #This is the ID of the circle to match to other data
-                 fillColor=CircleColors()(MapData()$Values),
-                 color=CircleColors()(MapData()$Values),
-                 fillOpacity=1
-      )
-  })
-  
-  
-  
 #### Chose a tile layer to use
-  observe({ #req(input$MapSpecies)
+  observe({ req(input$MapSpecies)
     leafletProxy("VegMap") %>% 
   
     clearTiles() %>% 
@@ -136,8 +117,8 @@ shinyServer(function(input,output,session){
     switch(input$MapGroup,
          trees=,saplings=c(Abundance="count", "Basal Area"="size"),
          seedlings=,shseedlings=,shrubs=,vines=c(Abundance="count"),
-         herbs=c("Percent Cover"="size")
-         
+         herbs=c("Percent Cover"="size"),
+         soils=c("O Layer"="Ohor","A Layer"="Ahor")
     )
   })
 
@@ -152,17 +133,26 @@ shinyServer(function(input,output,session){
 ### Species list control for map ####
 #List of names, elements are Latin names, names of elements are Latin or common
   MapSpecList<-reactive({
-    SpecTemp<-unique(getPlants(object=if(input$MapPark=="All") {NCRN}  else {NCRN[[input$MapPark]]} , group=input$MapGroup, 
-      years=MapYears(),common=F )$Latin_Name)
-    SpecNames<-getPlantNames(object=NCRN[[1]], names=SpecTemp, in.style="Latin",out.style=ifelse(input$mapCommon,"common","Latin"))
-    names(SpecTemp)<-SpecNames  
-    SpecTemp<-SpecTemp[order(tolower(names(SpecTemp)))]
-    SpecTemp<-c("All Species"="All", SpecTemp)
-  })
+    if(input$MapGroup!="soils"){
+       SpecTemp<-unique(getPlants(object=if(input$MapPark=="All") {NCRN}  else {NCRN[[input$MapPark]]} , group=input$MapGroup, years=MapYears(),common=F )$Latin_Name)
+       SpecNames<-getPlantNames(object=NCRN[[1]], names=SpecTemp, in.style="Latin",out.style=ifelse(input$mapCommon,"common","Latin"))
+       names(SpecTemp)<-SpecNames  
+       SpecTemp<-SpecTemp[order(tolower(names(SpecTemp)))]
+       SpecTemp<-c("All Species"="All", SpecTemp)}
+    else{if(input$MapGroup=="soils"){
+       SpecTemp<-names(getSoils(object=if(input$MapPark=="All") {NCRN}  else {NCRN[[input$MapPark]]},
+                              years=MapYears(),values=MapValues)[,12:31])
+#      SpecTemp<-unique(getSoils(object=if(input$MapPark=="All"){NCRN} else {NCRN[[input$MapPark]]},
+#                                 years=MapYears())[,12:31])
+#      SpecNames<-(getSoilChemNames(object=NCRN[[1]],chem.names=SpecTemp))
+#      names(SpecTemp)<-SpecNames
+      SpecTemp=c("Select One"="Select",SpecTemp)}
+       }   
+      })
 
   output$MapSpeciesControl<-renderUI({
       req(input$MapPark, MapSpecList())
-              selectInput(inputId="MapSpecies", label="Choose a species", choices=c(MapSpecList() ))
+              selectInput(inputId="MapSpecies", label="Choose a variable", choices=c(MapSpecList()))
       
   })
 
@@ -209,7 +199,18 @@ shinyServer(function(input,output,session){
         mutate(Values=SiteXSpec(object=NCRN,group=input$MapGroup, years=MapYears(), species=MapSpeciesUse(),
                                 values=input$MapValues)$Total/12)
       )
-    } 
+   }
+    if(input$MapGroup=="soils" && input$MapValues=="Ohor"){
+      return(P %>%
+        mutate(Values=getSoils(object=NCRN,group=input$MapGroup,years=MapYears(),species=MapSpeciesUse(),
+                               values=input$MapValues))
+      )}
+    
+    if(input$MapGroup=="soils" && input$MapValues=="Ahor"){
+      return(P %>%
+       mutate(Values=getSoils(object=NCRN,group=input$MapGroup,years=MapYears(),species=MapSpeciesUse(),
+                                      values=input$MapValues))
+      )}
   })
 
   ### Map Colors
@@ -223,29 +224,29 @@ shinyServer(function(input,output,session){
   PolyColors<-colorRamp(c("aquamarine4","green","yellow","goldenrod4")) #colors for polygons
   
   
-# #### add Monitoring plot data as circles
-#   observe({
-#     validate(
-#       need(input$MapValues, message = FALSE)
-#     )
-#    input$MapLayer #make sure Circles are always on top
-#    leafletProxy("VegMap") %>% 
-#    clearGroup("Circles") %>% 
-#     addCircles(data=MapData(), radius=15*as.numeric(input$PlotSize), group="Circles",
-#                lng=MapData()$Longitude, lat=MapData()$Latitude,
-#              layerId=MapData()$Plot_Name,  #This is the ID of the circle to match to other data
-#              fillColor=CircleColors()(MapData()$Values),
-#              color=CircleColors()(MapData()$Values),
-#              fillOpacity=1
-#     )
-#   })
+#### add Monitoring plot data as circles
+  observe({
+    validate(
+      need(input$MapValues, message = FALSE)
+    )
+   input$MapLayer #make sure Circles are always on top
+   leafletProxy("VegMap") %>% 
+   clearGroup("Circles") %>% 
+    addCircles(data=MapData(), radius=15*as.numeric(input$PlotSize), group="Circles",
+               lng=MapData()$Longitude, lat=MapData()$Latitude,
+             layerId=MapData()$Plot_Name,  #This is the ID of the circle to match to other data
+             fillColor=CircleColors()(MapData()$Values),
+             color=CircleColors()(MapData()$Values),
+             fillOpacity=1
+    )
+  })
 
 #### Add GeoJSON polygon layer
 
   withProgress(message="Loading...Please Wait", value=1,{
     Ecoregion<-readOGR(dsn="./Maps/Ecoregion.geojson","OGRGeoJSON")
     Forested<-readOGR(dsn="./Maps/Forests.geojson","OGRGeoJSON")
-    Soil<-readOGR(dsn="./Maps/Soils.geojson","OGRGeoJSON")
+    Soil<-readOGR(dsn="/Maps/Soils.geojson","OGRGeoJSON")
     }
   )
 
@@ -337,31 +338,44 @@ shinyServer(function(input,output,session){
     ShapeClick<-input$VegMap_shape_click
     selectedPlot <- MapData()[MapData()$Plot_Name == ShapeClick$id,]
     
-    if(
-      class(try(SiteXSpec(object=NCRN[[selectedPlot$Unit_Code]], group=input$MapGroup, years=selectedPlot$Year,
+    if(class(try(SiteXSpec(object=NCRN[[selectedPlot$Unit_Code]], group=input$MapGroup, years=selectedPlot$Year,
             plots=ShapeClick$id, common=input$mapCommon), silent=TRUE))=="try-error") {
-      content<-as.character(tagList(tags$h6("None found on this plot")))
-    } else {
-                      
-      tempData<- if(input$MapGroup != "herbs" && input$MapValues != "size"){
+      content<-as.character(tagList(tags$h6("None found on this plot")))}
+    else {
+
+      if(input$MapGroup !="soils"){                
+        tempData<- if(input$MapGroup != "herbs" && input$MapValues != "size"){
         (10000/getArea(NCRN[[selectedPlot$Unit_Code]],group=input$MapGroup,type="all")) *
         SiteXSpec(object=NCRN[[selectedPlot$Unit_Code]],group=input$MapGroup, years=selectedPlot$Year, 
-        plots=ShapeClick$id, values=input$MapValues, common=input$mapCommon)[-1]
+        plots=ShapeClick$id, values=input$MapValues, common=input$mapCommon)[-1] }
       
-        } else {
+        else {
                        
-        if(input$MapGroup != "herbs" && input$MapValues == "size"){ 
-          (10000/getArea(NCRN[[selectedPlot$Unit_Code]],group=input$MapGroup,type="all")) * (    #need to convert to m^2/ha from cm^2/ha
-            SiteXSpec(object=NCRN[[selectedPlot$Unit_Code]],group=input$MapGroup, years=selectedPlot$Year,
-            plots=ShapeClick$id,values=input$MapValues,common=input$mapCommon)[-1])/10000
-        } else {                
+        if(input$MapGroup != "herbs"  && input$MapValues == "size"){ 
+        (10000/getArea(NCRN[[selectedPlot$Unit_Code]],group=input$MapGroup,type="all")) * (    #need to convert to m^2/ha from cm^2/ha
+        SiteXSpec(object=NCRN[[selectedPlot$Unit_Code]],group=input$MapGroup, years=selectedPlot$Year,
+        plots=ShapeClick$id,values=input$MapValues,common=input$mapCommon)[-1])/10000 }
+
+        else {                
       
-          if(input$MapGroup == "herbs"){ 
-            SiteXSpec(object=NCRN[[selectedPlot$Unit_Code]], group=input$MapGroup, years=selectedPlot$Year, 
-            plots=ShapeClick$id,values=input$MapValues,common=input$mapCommon)[-1]/12
-          }
-        }
-        }
+        if(input$MapGroup == "herbs"){ 
+         SiteXSpec(object=NCRN[[selectedPlot$Unit_Code]], group=input$MapGroup, years=selectedPlot$Year, 
+         plots=ShapeClick$id,values=input$MapValues,common=input$mapCommon)[-1]/12 }
+ 
+        }}} else {
+
+      if(input$MapGroup=="soils"){    
+          tempData<- if(input$MapGroup== "soils" && input$MapValues=="Ohor"){
+          getSoils(object=NCRN[[selectedPlot$Unit_Code]], group=input$MapGroup,years=selectedPlot$Year,
+          plots=ShapeClick$id,values=input$MapValues,species=MapSpeciesUse())[-1] }
+        
+         else {
+          if(input$MapGroup=="soils" && input$MapValues=="Ahor"){
+            getSoils(object=NCRN[[selectedPlot$Unit_Code]], group=input$MapGroup,years=selectedPlot$Year,
+                     plots=ShapeClick$id,values=input$MapValues,species=MapSpeciesUse())[-1]}}
+             }
+              }
+                
     
       content<-paste0( h5(getNames(NCRN[[selectedPlot$Unit_Code]],"long")),
                     h6("Monitoring Plot:",selectedPlot$Plot_Name),
